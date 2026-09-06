@@ -23,6 +23,9 @@ Dieses Repo wurde aus dem Vorlagen-Repo `vitrine-package-template` per
   (Charter-Regel 6); dieselbe Regel gilt fuer deinen Paketinhalt.
 - [`.github/workflows/release.yml`](.github/workflows/release.yml) -- die
   Release-Automatik (siehe unten).
+- [`vendor/vitrine-cli/`](vendor/vitrine-cli/) -- mitgelieferte Kopie der
+  Vitrine-CLI, die `release.yml` benutzt. Nicht von Hand bearbeiten, siehe
+  README dort.
 
 ## Vitrine.json anpassen
 
@@ -39,15 +42,12 @@ Dieses Repo wurde aus dem Vorlagen-Repo `vitrine-package-template` per
 Lokal pruefen, bevor du taggst:
 
 ```
-node vitrine-cli/cli/vitrine.js validate .
+node vendor/vitrine-cli/cli/vitrine.js validate .
 ```
 
-(`vitrine-cli/` existiert nur, wenn du das im nächsten Abschnitt beschriebene
-Auschecken lokal nachstellst -- die Action holt sich das automatisch, siehe
-`.github/workflows/release.yml`. Fuer eine rein lokale Pruefung ohne diesen
-Schritt: das `vitrine`-Hauptrepo daneben auschecken und den Pfad anpassen,
-oder `npx` mit einer veroeffentlichten CLI-Version verwenden, sobald es eine
-gibt.)
+(Die `vendor/vitrine-cli/`-Kopie liegt bereits in deinem Repo, kein
+zusaetzlicher Auschecken-Schritt noetig -- dieselbe CLI laeuft auch in
+`.github/workflows/release.yml`.)
 
 ## Eine Version veroeffentlichen (Tag ⇒ Release ⇒ `.vpkg`)
 

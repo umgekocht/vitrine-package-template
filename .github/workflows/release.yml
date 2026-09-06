@@ -6,6 +6,16 @@ name: Release
 # dem .vpkg als Asset und oeffnet optional einen PR gegen vitrine-registry.
 # Siehe scripts/dry-run.mjs im Vorlagen-Repo (vitrine/templates/package-repo)
 # fuer den lokalen Trockenlauf derselben Schritte ohne Tag/Push/gh (D8/K6-Stil).
+#
+# Nutzt vendor/vitrine-cli/ (eine mitgelieferte Kopie von cli/,
+# designer/schema-validate.js und registry/schema/vitrine.schema.json aus dem
+# Vitrine-Hauptrepo -- siehe vendor/vitrine-cli/README.md) statt die drei
+# per zweitem actions/checkout aus dem Hauptrepo zu holen: das oeffentliche
+# Hauptrepo `umgekocht/vitrine` existiert (Stand D8) noch nicht (ROADMAP A4
+# steht aus) -- ein Paket-Autor, der heute "Use this template" benutzt, soll
+# darauf nicht warten muessen. Vendern statt Nachladen ist derselbe Umgang
+# mit demselben Problem wie beim Mod-Jar (P1: eigene eingebettete
+# Schema-Kopie statt Laufzeit-Nachladen).
 on:
   push:
     tags:
@@ -27,26 +37,40 @@ jobs:
       - name: Eigenes Repo auschecken
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Vitrine-Hauptrepo auschecken (liefert cli/, designer/schema-validate.js, registry/schema/vitrine.schema.json)
-        # Kein neues npm-Paket, keine Submodule (Charter-Regel 5, Laufwerk-Z-
-        # Einschraenkung gilt nur lokal, hier auf ubuntu-latest ohne Belang):
-        # dasselbe Prinzip wie registry/.github/workflows/pr-check.yml,
-        # das ebenfalls nur mit actions/checkout + actions/setup-node
-        # auskommt. Die CLI (D7) validiert/baut/signiert exakt so, wie es
-        # Designer und Mod tun, weil sie denselben Code laedt.
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: umgekocht/vitrine
-          ref: main
-          path: vitrine-cli
-
       - name: Node.js einrichten
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
 
+      - name: Paketinhalt ohne .github/ und vendor/ zusammenstellen
+        # cli/vitrine.js pack packt den gesamten uebergebenen Ordner
+        # rekursiv ein (siehe vendor/vitrine-cli/cli/lib/pack.js) -- CI-
+        # Werkzeug (dieser Workflow selbst, die vendorte CLI) soll nicht im
+        # ausgelieferten .vpkg landen. Staging-Kopie statt Ausschlussliste
+        # in pack.js, damit ein lokales `vitrine.js pack .` (ohne CI)
+        # weiterhin genauso funktioniert wie hier.
+        # Reine node:fs-Bordmittel statt rsync (keine Annahme ueber
+        # vorinstallierte Runner-Werkzeuge).
+        run: |
+          node -e "
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const src = process.cwd();
+            const dst = path.join(process.env.RUNNER_TEMP, 'paket-inhalt');
+            fs.cpSync(src, dst, {
+              recursive: true,
+              filter: (p) => {
+                const rel = path.relative(src, p).split(path.sep).join('/');
+                if (rel === '.git' || rel.startsWith('.git/')) return false;
+                if (rel === '.github' || rel.startsWith('.github/')) return false;
+                if (rel === 'vendor' || rel.startsWith('vendor/')) return false;
+                return true;
+              },
+            });
+          "
+
       - name: Manifest gegen vitrine.schema.json pruefen
-        run: node vitrine-cli/cli/vitrine.js validate .
+        run: node vendor/vitrine-cli/cli/vitrine.js validate "$RUNNER_TEMP/paket-inhalt"
 
       - name: Paket-Id/Version aus vitrine.json lesen
         id: manifest
@@ -61,7 +85,7 @@ jobs:
           "
 
       - name: .vpkg bauen
-        run: node vitrine-cli/cli/vitrine.js pack . "${{ steps.manifest.outputs.vpkg }}"
+        run: node vendor/vitrine-cli/cli/vitrine.js pack "$RUNNER_TEMP/paket-inhalt" "${{ steps.manifest.outputs.vpkg }}"
 
       - name: .vpkg signieren (nur wenn VITRINE_SIGNING_KEY_B64 gesetzt ist)
         id: sign
@@ -76,7 +100,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/vitrine-signing-key"
           echo "$VITRINE_SIGNING_KEY_B64" | base64 -d > "$RUNNER_TEMP/vitrine-signing-key/signing-key"
           VITRINE_SIGNING_KEY_DIR="$RUNNER_TEMP/vitrine-signing-key" \
-            node vitrine-cli/cli/vitrine.js sign "${{ steps.manifest.outputs.vpkg }}"
+            node vendor/vitrine-cli/cli/vitrine.js sign "${{ steps.manifest.outputs.vpkg }}"
           echo "'${{ steps.manifest.outputs.vpkg }}' signiert mit dem hinterlegten Schluessel."
           echo "signed=true" >> "$GITHUB_OUTPUT"
 
